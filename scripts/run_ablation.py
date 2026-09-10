@@ -38,7 +38,7 @@ def main():
         print("+", " ".join(cmd))
         subprocess.run(cmd, check=True)
 
-    rows = sorted(json.loads(p.read_text()) for p in RESULTS.glob("*.json"))
+    rows = [json.loads(p.read_text()) for p in RESULTS.glob("*.json")]
     print(f"\n{'method':<6} {'bits':>4} {'rotation':>9} {'ppl':>9} {'compress':>9}")
     print("-" * 42)
     for r in sorted(rows, key=lambda r: (r["method"], -r["bits"], r["rotation"])):
