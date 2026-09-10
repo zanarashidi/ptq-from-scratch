@@ -9,8 +9,9 @@ error, weighted by the inverse Hessian of the layer's reconstruction loss.
   H      = 2/N * sum_n  x_n x_n^T        (X = layer inputs from calibration data)
   update = -(w_q - quant(w_q)) / [H^-1]_qq  *  [H^-1]_q,:
 
-All the linear algebra (Cholesky, inverse) runs on CPU in float64 - the matrices
-are small and MPS's linalg support is unreliable.
+All the linear algebra (Cholesky, inverse) runs in float64. On MPS that has to
+be CPU (MPS has no float64 / unreliable linalg); on CUDA we keep it on the GPU,
+which is ~5x faster for the Hessian accumulation with large calibration sets.
 
 The driver quantizes one transformer block at a time so only one block's Hessians
 live in memory - important on an 8GB machine.
@@ -25,15 +26,16 @@ from .quant import _qparams, quantize_scalar
 class GPTQ:
     """Accumulates the Hessian for one nn.Linear and quantizes it."""
 
-    def __init__(self, layer: nn.Linear):
+    def __init__(self, layer: nn.Linear, linalg_device="cpu"):
         self.layer = layer
+        self.ld = torch.device(linalg_device)
         self.rows, self.cols = layer.weight.shape  # [out, in]
-        self.H = torch.zeros((self.cols, self.cols), dtype=torch.float64)
+        self.H = torch.zeros((self.cols, self.cols), dtype=torch.float64, device=self.ld)
         self.nsamples = 0
 
     def add_batch(self, inp: torch.Tensor):
         """inp: [..., in_features] activations feeding this layer."""
-        x = inp.reshape(-1, self.cols).cpu().to(torch.float64)
+        x = inp.reshape(-1, self.cols).to(self.ld, torch.float64)
         n = x.shape[0]
         self.H *= self.nsamples / (self.nsamples + n)
         self.nsamples += n
@@ -43,7 +45,7 @@ class GPTQ:
     @torch.no_grad()
     def quantize(self, bits: int, sym: bool = True, groupsize: int = -1,
                  blocksize: int = 128, percdamp: float = 0.01, actorder: bool = False):
-        W = self.layer.weight.data.detach().cpu().to(torch.float64)
+        W = self.layer.weight.data.detach().to(self.ld, torch.float64)
         H = self.H.clone()
 
         dead = torch.diag(H) == 0
@@ -126,6 +128,8 @@ def gptq_quantize_model(model, calib_samples, bits: int, device,
     """calib_samples: list of [1, seqlen] token tensors."""
     base, blocks = _get_blocks(model)
     dtype = next(model.parameters()).dtype
+    # MPS has no float64 -> linalg on CPU; CUDA keeps it on-device (much faster).
+    linalg_device = device if device.type == "cuda" else torch.device("cpu")
 
     # --- 1. capture inputs to block 0 ------------------------------------- #
     base.embed_tokens.to(device)
@@ -164,7 +168,7 @@ def gptq_quantize_model(model, calib_samples, bits: int, device,
     for b, block in enumerate(tqdm(blocks, desc="gptq blocks")):
         block.to(device)
         linears = {n: m for n, m in block.named_modules() if isinstance(m, nn.Linear)}
-        gptq = {n: GPTQ(m) for n, m in linears.items()}
+        gptq = {n: GPTQ(m, linalg_device=linalg_device) for n, m in linears.items()}
 
         handles = []
         for n, m in linears.items():
