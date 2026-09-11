@@ -1,9 +1,9 @@
-"""Memory + throughput, framed the way ElastixAI frames it: bytes moved per token.
+"""Memory + throughput: bytes moved per token.
 
 Note: this repo does fake quantization, so runtime memory here reflects fp16
-tensors. The `theoretical_bytes_per_token` number is what matters for the writeup
-- it's the weight bytes that must be streamed from HBM per forward pass, which is
-the actual bottleneck for memory-bound decode.
+tensors. The theoretical weight-bytes number is the one that matters - it's the
+weight bytes that must be streamed from HBM per forward pass, which is the actual
+bottleneck for memory-bound decode.
 """
 import time
 
