@@ -1,0 +1,18 @@
+{
+  "model": "Qwen/Qwen2.5-0.5B",
+  "method": "rtn",
+  "bits": 8,
+  "rotation": "none",
+  "groupsize": -1,
+  "sym": true,
+  "nsamples": 128,
+  "calib_seqlen": 2048,
+  "eval_seqlen": 2048,
+  "ppl": 13.092863082885742,
+  "quant_seconds": 0.4,
+  "bytes": {
+    "fp16_MB": 715.65312,
+    "int8_MB": 357.82656,
+    "compression": 2.0
+  }
+}

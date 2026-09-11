@@ -1,0 +1,18 @@
+{
+  "model": "Qwen/Qwen2.5-0.5B",
+  "method": "gptq",
+  "bits": 3,
+  "rotation": "hadamard",
+  "groupsize": -1,
+  "sym": true,
+  "nsamples": 128,
+  "calib_seqlen": 2048,
+  "eval_seqlen": 2048,
+  "ppl": 85.27056884765625,
+  "quant_seconds": 758.4,
+  "bytes": {
+    "fp16_MB": 715.65312,
+    "int3_MB": 134.18496,
+    "compression": 5.333333333333333
+  }
+}
