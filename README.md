@@ -17,7 +17,7 @@ is explainable.
 |---|---|---|
 | RTN baseline | `ptq/rtn.py`, `ptq/quant.py` | per-channel / per-group, symmetric or asymmetric. The control group. |
 | GPTQ | `ptq/gptq.py` | Hessian from calibration activations, Cholesky-based inverse, column-wise OBQ error compensation (Algorithm 1 + 2 of the paper). Block-by-block so only one block's Hessians are resident. |
-| Rotation (mini-QuaRot) | `ptq/rotation.py` | R1: fuse RMSNorm scales into adjacent linears, then rotate the residual stream by a Hadamard (or random orthogonal) matrix. Function-preserving via computational invariance. |
+| Rotation (mini-QuaRot) | `ptq/rotation.py` | R1: fuse RMSNorm scales into adjacent linears, then rotate the residual stream by a Hadamard, random orthogonal, or Givens (composed pairwise rotations, no power-of-two constraint) matrix. Function-preserving via computational invariance. |
 | Perplexity | `ptq/eval_ppl.py` | WikiText-2, non-overlapping windows - the standard PTQ metric. |
 | Memory / throughput | `ptq/benchmark.py` | theoretical bytes-streamed-per-token + measured tokens/s. |
 
@@ -76,6 +76,8 @@ calibrated on 128 sequences x 2048 tokens, symmetric weights, run on an RTX 3090
 | GPTQ   | 3  | per-channel | none     | 107.09    | +94.02 |
 | GPTQ   | 3  | per-channel | random   | 82.61     | +69.54 |
 | GPTQ   | 3  | per-channel | hadamard | 85.27     | +72.20 |
+| GPTQ   | 4  | per-channel | givens   | 15.46     | +2.39 |
+| GPTQ   | 3  | per-channel | givens   | **74.98** | +61.91 |
 | GPTQ   | 4  | group-128   | none     | 14.57     | +1.50 |
 | GPTQ   | 4  | group-128   | hadamard | 14.40     | +1.33 |
 | GPTQ   | 3  | group-128   | none     | 26.55     | +13.48 |
@@ -102,22 +104,36 @@ calibrated on 128 sequences x 2048 tokens, symmetric weights, run on an RTX 3090
    every other," for which Hadamard is just the cheap `O(n log n)` structured
    choice.
 
-4. **Rotation alone does not rescue 3-bit here, and that is the interesting
-   part.** GPTQ-3 + Hadamard is still 85 ppl against fp16's 13. Qwen2.5-0.5B has
+4. **A full Hadamard alone does not rescue 3-bit here - because Qwen never gets
+   one.** GPTQ-3 + Hadamard is still 85 ppl against fp16's 13. Qwen2.5-0.5B has
    hidden size 896 = 128 x 7, which is not a power of two, so `hadamard_matrix()`
    falls back to `kron(H_128, I_7)` - it only mixes channels *within* each block
-   of 128 and leaves the 7 blocks unmixed. A model with a power-of-two hidden
-   dimension (Llama-3.2-1B, 2048) gets a full Hadamard; that is the natural next
-   data point.
+   of 128 and leaves the 7 blocks unmixed.
 
-5. **Group scales and rotation solve overlapping problems.** Moving GPTQ to
+5. **A rotation with no power-of-two constraint closes most of that gap.**
+   `ptq/rotation.py` also implements a Givens-rotation mode (composed random
+   pairwise plane rotations - the approach in ParoQuant, Liang et al. 2025):
+   it needs no power-of-two hidden size, since it is built from `n/2` 2x2
+   rotations per layer rather than a fixed butterfly. At GPTQ-3 per-channel it
+   reaches **74.98 ppl - better than the partial Hadamard (85.3) and better
+   than a full random orthogonal draw (82.6)**, the best 3-bit per-channel
+   result in this table. At 4-bit it lands within noise of Hadamard (15.46 vs
+   15.33) - consistent with rotation choice mattering most exactly where the
+   outlier problem is hardest. Llama-3.2-1B (hidden 2048, a genuine
+   power-of-two) is still the cleaner test of a *full* Hadamard specifically,
+   but Givens rotation sidesteps the question entirely: it works on any hidden
+   size without a fallback.
+
+6. **Group scales and rotation solve overlapping problems.** Moving GPTQ to
    group-128 scales takes 3-bit from unusable (107) to 26.5 and 4-bit to within
-   1.5 ppl of fp16. Once the scale is local to a 128-wide group, the group max
-   already tracks local outliers, and adding the (partial) rotation on top
-   changes nothing: 14.57 -> 14.40 at 4-bit, 26.55 -> 26.76 at 3-bit. On this
-   model, per-group quantization is the bigger lever; rotation is what you reach
-   for when you want to keep a *single* scale per channel (cheaper metadata,
-   simpler kernels) and still survive 4-bit.
+   1.5 ppl of fp16 - still well ahead of per-channel + Givens (75.0). Once the
+   scale is local to a 128-wide group, the group max already tracks local
+   outliers, and adding the (partial) rotation on top changes nothing: 14.57 ->
+   14.40 at 4-bit, 26.55 -> 26.76 at 3-bit. On this model, per-group
+   quantization is the bigger lever; rotation is what you reach for when you
+   want to keep a *single* scale per channel (cheaper metadata, simpler
+   kernels) and still survive low-bit weights - and if you're in that regime,
+   which rotation you pick clearly matters (75.0 vs 85.3 vs 107.1).
 
 ## Why rotation works
 
@@ -131,8 +147,13 @@ calibrated on 128 sequences x 2048 tokens, symmetric weights, run on an RTX 3090
    Johnson-Lindenstrauss / concentration argument the rotated vector looks
    near-Gaussian with a much smaller max/RMS ratio, so a uniform grid fits it
    well. A Hadamard matrix is the cheap structured choice: `O(n log n)`, entries
-   `+-1/sqrt(n)`. The ablation confirms a *random* orthogonal matrix works
-   equally well - the structure buys speed, not accuracy.
+   `+-1/sqrt(n)`, but it demands a power-of-two `n`. A *random* orthogonal
+   matrix (full QR-based draw) works equally well and needs no such
+   constraint - the structure buys speed, not accuracy. Composed pairwise
+   Givens rotations (`givens_rotation()`) are a third option in the same
+   family: no power-of-two constraint like random, but built from cheap `O(n)`
+   plane rotations per layer rather than one dense `O(n^2)` QR factorization -
+   and on Qwen's non-power-of-two hidden size it was the best of the three.
 
 3. **Why it's free at inference (computational invariance).** RMSNorm is
    invariant to an orthogonal rotation of its input (it only divides by the
@@ -147,13 +168,19 @@ calibrated on 128 sequences x 2048 tokens, symmetric weights, run on an RTX 3090
    bytes) / HBM bandwidth. Going 16 -> 4 bit is a ~4x cut in bytes streamed per
    token. Rotation is one of the tools that lets you take that cut while keeping
    a single scale per channel and without accuracy falling off a cliff - most
-   effective, on the evidence here, when the hidden dimension admits a full
-   Hadamard.
+   effective, on the evidence here, when the rotation actually achieves
+   full-rank mixing (a full Hadamard, a random draw, or enough Givens layers),
+   and weakest when a shape mismatch (a non-power-of-two hidden size) forces a
+   partial one.
 
 ## Extensions
 
-- Llama-3.2-1B (hidden 2048): a clean power-of-two Hadamard, to test whether full
-  channel mixing closes the 3-bit gap that the partial `kron(H_128, I_7)` cannot
+- Llama-3.2-1B (hidden 2048): a clean power-of-two Hadamard, as the direct
+  comparison point for how a *full* Hadamard stacks up against Givens rotation
+  on the same architecture, now that both are implemented
+- Learned Givens angles instead of random ones (ParoQuant optimizes them; here
+  they're drawn once from a fixed seed) - likely closes more of the remaining
+  gap to random/full-Hadamard mixing
 - KV-cache int8/int4 (the long-context bandwidth bottleneck)
 - R2/R3/R4 rotations for activation quantization (W4A4)
 - packed int4 storage + a real fast kernel (Marlin) for a measured tokens/s number
@@ -163,4 +190,6 @@ calibrated on 128 sequences x 2048 tokens, symmetric weights, run on an RTX 3090
 - Frantar et al., *GPTQ: Accurate Post-Training Quantization for Generative
   Pre-trained Transformers*, 2023
 - Ashkboos et al., *QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs*, 2024
+- Liang, Chen, Han, Liu, *ParoQuant: Pairwise Rotation Quantization for
+  Efficient Reasoning LLM Inference*, 2025 (the Givens-rotation idea used here)
 - Chee et al., *QuIP*, 2023; Tseng et al., *QuIP#*, 2024 (incoherence processing)

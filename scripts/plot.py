@@ -19,6 +19,7 @@ MUTED = "#9a9a9a"
 NOROT = "#9aa0a6"      # no rotation - recessive
 HAD = "#2f6f4f"        # hadamard - accent
 RAND = "#b06a1f"       # random orthogonal - secondary point
+GIVENS = "#5b4fa0"     # givens (pairwise) rotation - secondary point
 GRID = "#e8e8e8"
 BAD = "#b00020"
 
@@ -57,6 +58,7 @@ def main():
         for y, (method, gs, label) in zip(ypos, ROWS):
             p0, p1 = get(method, gs, bits, "none"), get(method, gs, bits, "hadamard")
             pr = get(method, gs, bits, "random")
+            pg = get(method, gs, bits, "givens")
 
             # both diverge off-scale -> just flag it, no markers
             if p0 and p1 and p0 > XMAX and p1 > XMAX:
@@ -80,6 +82,13 @@ def main():
                 ax.scatter([pr], [y], s=60, color=RAND, marker="D", edgecolor="white",
                            lw=1, zorder=4,
                            label=lbl("+ random orthogonal"))
+            if pg:
+                ax.scatter([pg], [y], s=70, color=GIVENS, marker="^", edgecolor="white",
+                           lw=1, zorder=6,
+                           label=lbl("+ Givens (pairwise)"))
+                ax.annotate(f"{pg:.1f}", (pg, y), xytext=(0, 21),
+                            textcoords="offset points", ha="center", fontsize=8.5,
+                            color=GIVENS)
             if p1:
                 ax.scatter([p1], [y], s=95, color=HAD, edgecolor="white", lw=1.5,
                            zorder=5, label=lbl("+ Hadamard"))
@@ -118,7 +127,7 @@ def main():
             if li not in labels:
                 handles.append(hi)
                 labels.append(li)
-    order = ["no rotation", "+ Hadamard", "+ random orthogonal"]
+    order = ["no rotation", "+ Hadamard", "+ random orthogonal", "+ Givens (pairwise)"]
     pairs = sorted(zip(labels, handles), key=lambda t: order.index(t[0]))
     fig.legend([h for _, h in pairs], [l for l, _ in pairs], loc="lower center",
                ncol=3, frameon=False, fontsize=9, bbox_to_anchor=(0.5, -0.08))
