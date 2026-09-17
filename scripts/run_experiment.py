@@ -29,7 +29,7 @@ def main():
     p.add_argument("--model", default=DEFAULT_MODEL)
     p.add_argument("--method", choices=["fp16", "rtn", "gptq"], default="rtn")
     p.add_argument("--bits", type=int, default=4)
-    p.add_argument("--rotation", choices=["none", "hadamard", "random"], default="none")
+    p.add_argument("--rotation", choices=["none", "hadamard", "random", "givens"], default="none")
     p.add_argument("--groupsize", type=int, default=-1)
     p.add_argument("--sym", action="store_true", default=True)
     p.add_argument("--asym", dest="sym", action="store_false")

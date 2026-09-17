@@ -2,7 +2,7 @@
 import torch
 
 from ptq.quant import quantize_weight
-from ptq.rotation import hadamard_matrix, random_orthogonal, get_rotation
+from ptq.rotation import hadamard_matrix, random_orthogonal, givens_rotation, get_rotation
 
 
 def test_rtn_error_shrinks_with_bits():
@@ -36,6 +36,34 @@ def test_hadamard_non_pow2_fallback_still_orthogonal():
 def test_random_orthogonal():
     Q = random_orthogonal(128, seed=1)
     assert torch.allclose(Q @ Q.t(), torch.eye(128, dtype=Q.dtype), atol=1e-10)
+
+
+def test_givens_orthogonal_including_odd_n():
+    for n in (2, 5, 64, 896, 897):  # 897 exercises the odd-leftover path
+        Q = givens_rotation(n, seed=0)
+        assert torch.allclose(Q @ Q.t(), torch.eye(n, dtype=Q.dtype), atol=1e-9)
+
+
+def test_givens_matches_random_orthogonal_on_non_pow2_n():
+    """On Qwen's hidden=896 (not a power of two), hadamard_matrix() falls back
+    to a partial kron() mix. givens_rotation() has no such constraint - with
+    its default layer count it should reach full-rank mixing quality,
+    matching a true random orthogonal matrix's outlier-smoothing (its actual
+    target - not the partial Hadamard, which for any *single* outlier layout
+    can land above or below either by chance)."""
+    torch.manual_seed(0)
+    n = 896
+    w = torch.randn(256, n)
+    outlier_idx = torch.randperm(n)[:24]
+    w[:, outlier_idx] *= 15.0  # inject outlier channels, no periodic alignment
+    ratio = lambda x: (x.abs().amax(1) / x.double().pow(2).mean(1).sqrt()).mean()
+
+    r_none = ratio(w)
+    r_random = ratio(w.double() @ random_orthogonal(n, seed=0))
+    r_givens = ratio(w.double() @ givens_rotation(n, seed=0))
+
+    assert r_givens < r_none  # still smooths outliers relative to no rotation
+    assert abs(r_givens - r_random) < 0.1 * r_random  # within 10% of full random mixing
 
 
 def test_rotation_reduces_outlier_dominance():

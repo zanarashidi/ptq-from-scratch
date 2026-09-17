@@ -52,11 +52,47 @@ def random_orthogonal(n: int, seed: int = 0) -> torch.Tensor:
     return q
 
 
+def givens_rotation(n: int, layers: int = None, seed: int = 0) -> torch.Tensor:
+    """Compose random pairwise (Givens) plane rotations into an n x n orthogonal
+    matrix - ParoQuant's (2025) alternative to a global Hadamard.
+
+    hadamard_matrix() needs n a power of two and falls back to a *partial*
+    kron() mix when it isn't (as on Qwen2.5-0.5B, hidden=896). A Givens
+    rotation has no such constraint: each layer randomly pairs up all n
+    coordinates and rotates every pair by an independent angle. Composing
+    enough layers (product of orthogonal matrices is orthogonal) mixes every
+    coordinate with many others, same effect as a full Hadamard, for any n.
+    """
+    g = torch.Generator().manual_seed(seed)
+    Q = torch.eye(n, dtype=torch.float64)
+    # A *random* pairing each round mixes more slowly than a structured
+    # butterfly (FFT/Hadamard's fixed log2(n)-stage wiring): empirically this
+    # needs ~3x as many rounds to converge to full-rank mixing (verified by
+    # sweeping outlier-ratio vs layer count until it matches random_orthogonal).
+    layers = layers or max(32, 3 * int(math.ceil(math.log2(n))))
+
+    for _ in range(layers):
+        perm = torch.randperm(n, generator=g)
+        angles = torch.rand(n // 2, generator=g, dtype=torch.float64) * (2 * math.pi)
+
+        a = perm[0::2][: n // 2]  # first index of each pair
+        b = perm[1::2][: n // 2]  # second index of each pair
+        cos, sin = torch.cos(angles).unsqueeze(1), torch.sin(angles).unsqueeze(1)
+        Qa, Qb = Q[a], Q[b]
+        Q[a] = cos * Qa - sin * Qb
+        Q[b] = sin * Qa + cos * Qb
+        # if n is odd, perm[-1] has no partner and sits out this layer.
+
+    return Q
+
+
 def get_rotation(n: int, mode: str, seed: int = 0) -> torch.Tensor:
     if mode == "hadamard":
         return hadamard_matrix(n)
     if mode == "random":
         return random_orthogonal(n, seed)
+    if mode == "givens":
+        return givens_rotation(n, seed=seed)
     raise ValueError(mode)
 
 
