@@ -49,7 +49,7 @@ python -m scripts.run_experiment --method gptq --bits 3 --rotation hadamard --gr
 python -m scripts.run_ablation --nsamples 128 --calib-seqlen 2048
 python -m scripts.plot                       # -> results/ablation.png
 
-# fast pass while iterating:
+# fast pass while iterating (fp16/RTN/4-bit GPTQ only - see caveat below):
 python -m scripts.run_ablation --limit-windows 20 --nsamples 32
 ```
 
@@ -57,6 +57,15 @@ Each run writes `results/<tag>.json`. `run_ablation.py` runs every config in a
 subprocess (so GPU/MPS memory is released between runs) and prints the summary
 table below. To run on a rented GPU, `scripts/runpod_setup.sh` does the whole
 thing on a fresh CUDA pod.
+
+> **Caveat:** `H = XᵀX` is always positive-semidefinite in theory, but with too
+> few calibration tokens for the hidden size (e.g. `--nsamples 32
+> --calib-seqlen 512` = 16k tokens for a 896-dim Hessian), it can be
+> ill-conditioned enough that `torch.linalg.cholesky` fails outright, or 3-bit
+> quantization diverges without erroring at all - happens at `--bits 3`
+> regardless of rotation, `--bits 4` was not observed to be affected. Use the
+> fast pass for iterating on the 4-bit/RTN/fp16 path; for real 3-bit GPTQ
+> numbers, use the full `--nsamples 128 --calib-seqlen 2048`.
 
 ## The result
 

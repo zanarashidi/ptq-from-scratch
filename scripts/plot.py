@@ -1,8 +1,10 @@
 """results/*.json -> results/ablation.png
 
 Dumbbell chart: for each (method, grouping) config at a given bit-width, show the
-no-rotation perplexity and the Hadamard-rotation perplexity connected by a bar.
-The gap and its direction are the result. Faceted into 4-bit and 3-bit panels.
+no-rotation perplexity and the Hadamard-rotation perplexity connected by a bar,
+with random-orthogonal and Givens-rotation results overlaid as secondary points
+on the GPTQ per-channel row where available. The gap and its direction are the
+result. Faceted into 4-bit and 3-bit panels.
 """
 import json
 from pathlib import Path

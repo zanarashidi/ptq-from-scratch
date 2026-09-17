@@ -24,6 +24,9 @@ GRID = [
     ("gptq", 3, "none", -1),
     ("gptq", 3, "hadamard", -1),
     ("gptq", 3, "random", -1),
+    # Givens (composed pairwise rotations): no power-of-two constraint, unlike hadamard
+    ("gptq", 4, "givens", -1),
+    ("gptq", 3, "givens", -1),
     # group-wise scales (groupsize=128): makes 3-bit usable, tightens 4-bit
     ("gptq", 4, "none", 128),
     ("gptq", 4, "hadamard", 128),
