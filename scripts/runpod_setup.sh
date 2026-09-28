@@ -8,7 +8,7 @@
 set -euo pipefail
 
 python -m pip install -q --upgrade pip
-python -m pip install -q "transformers>=4.45" "datasets>=2.20" numpy tqdm matplotlib
+python -m pip install -q "transformers>=4.45" "datasets>=2.20" tqdm matplotlib
 
 python -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')"
 
