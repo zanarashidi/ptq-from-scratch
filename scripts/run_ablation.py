@@ -51,8 +51,13 @@ def main():
     rows = [json.loads(p.read_text()) for p in RESULTS.glob("*.json")]
     print(f"\n{'method':<6} {'bits':>4} {'group':>6} {'rotation':>9} {'ppl':>11} {'compress':>9}")
     print("-" * 52)
-    for r in sorted(rows, key=lambda r: (r["method"], -r["bits"],
-                                         r.get("groupsize", -1), r["rotation"])):
+    # bits first, so configs at the same bit-width (the natural comparison) sit
+    # together instead of being split across separate method blocks; rotation
+    # ordered none -> hadamard -> random -> givens (baseline, then treatments)
+    # rather than alphabetically
+    rot_order = {"none": 0, "hadamard": 1, "random": 2, "givens": 3}
+    for r in sorted(rows, key=lambda r: (-r["bits"], r.get("groupsize", -1),
+                                         r["method"], rot_order.get(r["rotation"], 9))):
         c = r["bytes"].get("compression", 1.0)
         gs = r.get("groupsize", -1)
         print(f"{r['method']:<6} {r['bits']:>4} {gs:>6} {r['rotation']:>9} "

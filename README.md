@@ -72,25 +72,40 @@ thing on a fresh CUDA pod.
 `Qwen/Qwen2.5-0.5B`, WikiText-2 perplexity (seqlen 2048, full test set), GPTQ
 calibrated on 128 sequences x 2048 tokens, symmetric weights, run on an RTX 3090.
 
-| method | bits | grouping | rotation | WikiText-2 ppl | vs fp16 |
-|---|---|---|---|---:|---:|
-| fp16   | 16 | -           | -        | **13.07** | - |
-| RTN    | 8  | per-channel | none     | 13.09     | +0.02 |
-| RTN    | 4  | per-channel | none     | 30.26     | +17.19 |
-| RTN    | 4  | per-channel | hadamard | 25.50     | +12.43 |
-| RTN    | 3  | per-channel | none     | 136,980   | diverges |
-| RTN    | 3  | per-channel | hadamard | 254,852   | diverges |
-| GPTQ   | 4  | per-channel | none     | 16.54     | +3.47 |
-| GPTQ   | 4  | per-channel | hadamard | 15.33     | +2.26 |
-| GPTQ   | 3  | per-channel | none     | 107.09    | +94.02 |
-| GPTQ   | 3  | per-channel | random   | 82.61     | +69.54 |
-| GPTQ   | 3  | per-channel | hadamard | 85.27     | +72.20 |
-| GPTQ   | 4  | per-channel | givens   | 15.46     | +2.39 |
-| GPTQ   | 3  | per-channel | givens   | **74.98** | +61.91 |
-| GPTQ   | 4  | group-128   | none     | 14.57     | +1.50 |
-| GPTQ   | 4  | group-128   | hadamard | 14.40     | +1.33 |
-| GPTQ   | 3  | group-128   | none     | 26.55     | +13.48 |
-| GPTQ   | 3  | group-128   | hadamard | 26.76     | +13.69 |
+Grouped by bit-width first, since that's the axis you actually want to compare
+across (a 4-bit config against another 4-bit config, not against a 3-bit one) -
+`fp16` and `RTN 8-bit` are the reference points everything else is measured
+against:
+
+| method | bits | ppl | vs fp16 |
+|---|---|---:|---:|
+| fp16 | 16 | **13.07** | - |
+| RTN  | 8  | 13.09     | +0.02 |
+
+#### 4-bit weights
+
+| method | grouping | rotation | ppl | vs fp16 |
+|---|---|---|---:|---:|
+| GPTQ | per-channel | none     | 16.54     | +3.47 |
+| GPTQ | per-channel | hadamard | 15.33     | +2.26 |
+| GPTQ | per-channel | givens   | 15.46     | +2.39 |
+| RTN  | per-channel | none     | 30.26     | +17.19 |
+| RTN  | per-channel | hadamard | 25.50     | +12.43 |
+| GPTQ | group-128   | none     | 14.57     | +1.50 |
+| GPTQ | group-128   | hadamard | 14.40     | +1.33 |
+
+#### 3-bit weights
+
+| method | grouping | rotation | ppl | vs fp16 |
+|---|---|---|---:|---:|
+| GPTQ | per-channel | none     | 107.09    | +94.02 |
+| GPTQ | per-channel | hadamard | 85.27     | +72.20 |
+| GPTQ | per-channel | random   | 82.61     | +69.54 |
+| GPTQ | per-channel | givens   | **74.98** | +61.91 |
+| RTN  | per-channel | none     | 136,980   | diverges |
+| RTN  | per-channel | hadamard | 254,852   | diverges |
+| GPTQ | group-128   | none     | 26.55     | +13.48 |
+| GPTQ | group-128   | hadamard | 26.76     | +13.69 |
 
 ![ablation](results/ablation.png)
 
