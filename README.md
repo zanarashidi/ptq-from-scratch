@@ -107,20 +107,15 @@ against:
 | GPTQ | group-128   | none     | 26.55     | +13.48 |
 | GPTQ | group-128   | hadamard | 26.76     | +13.69 |
 
-<table><tr>
-<td width="50%">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="results/ablation_4bit_dark.png">
-  <img alt="4-bit ablation: rotation vs no rotation, RTN vs GPTQ" src="results/ablation_4bit.png" width="100%">
+  <img alt="4-bit ablation: rotation vs no rotation, RTN vs GPTQ" src="results/ablation_4bit.png" width="560">
 </picture>
-</td>
-<td width="50%">
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="results/ablation_3bit_dark.png">
-  <img alt="3-bit ablation: rotation vs no rotation, RTN vs GPTQ" src="results/ablation_3bit.png" width="100%">
+  <img alt="3-bit ablation: rotation vs no rotation, RTN vs GPTQ" src="results/ablation_3bit.png" width="560">
 </picture>
-</td>
-</tr></table>
 
 ### Reading the table
 
