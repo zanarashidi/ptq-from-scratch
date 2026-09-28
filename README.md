@@ -47,7 +47,7 @@ python -m scripts.run_experiment --method gptq --bits 3 --rotation hadamard --gr
 
 # the whole ablation grid -> results/*.json + a summary table
 python -m scripts.run_ablation --nsamples 128 --calib-seqlen 2048
-python -m scripts.plot                       # -> results/ablation.png
+python -m scripts.plot                       # -> results/ablation_{4,3}bit[_dark].png
 
 # fast pass while iterating (fp16/RTN/4-bit GPTQ only - see caveat below):
 python -m scripts.run_ablation --limit-windows 20 --nsamples 32
@@ -107,7 +107,14 @@ against:
 | GPTQ | group-128   | none     | 26.55     | +13.48 |
 | GPTQ | group-128   | hadamard | 26.76     | +13.69 |
 
-![ablation](results/ablation.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/ablation_4bit_dark.png">
+  <img alt="4-bit ablation: rotation vs no rotation, RTN vs GPTQ" src="results/ablation_4bit.png">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/ablation_3bit_dark.png">
+  <img alt="3-bit ablation: rotation vs no rotation, RTN vs GPTQ" src="results/ablation_3bit.png">
+</picture>
 
 ### Reading the table
 
