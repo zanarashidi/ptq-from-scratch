@@ -26,9 +26,7 @@ GRID = "#e8e8e8"
 BAD = "#b00020"
 
 XMAX = 400            # threshold for "diverges" annotation vs. an actual point
-XVIEW = (11.5, 130)   # axis range - tight around the real data (max ~107) so
-                      # nearby points (e.g. 14.4 vs 15.3 vs 16.5) stay visible
-TICKS = [13, 20, 30, 50, 75, 100]
+TICK_CANDIDATES = [13, 15, 20, 25, 30, 40, 50, 75, 100, 130]
 
 # (method, grouping) rows, top to bottom
 ROWS = [
@@ -59,15 +57,25 @@ def main():
 
     for ax, bits in zip(axes, (4, 3)):
         ypos = list(range(npos))[::-1]
+
+        # gather this panel's own points first, so its axis range can be fit
+        # tightly to just its own data - the two bit-widths don't need to share
+        # a scale, and a wide shared range was crowding the close-together points
+        points, panel_vals = [], [fp16] if fp16 else []
         for y, (method, gs, label) in zip(ypos, ROWS):
             p0, p1 = get(method, gs, bits, "none"), get(method, gs, bits, "hadamard")
             pr = get(method, gs, bits, "random")
             pg = get(method, gs, bits, "givens")
+            divergent = bool(p0 and p1 and p0 > XMAX and p1 > XMAX)
+            if not divergent:
+                panel_vals += [v for v in (p0, p1, pr, pg) if v is not None]
+            points.append((y, p0, p1, pr, pg, divergent))
+        view = (min(panel_vals) / 1.15, max(panel_vals) * 1.2)
 
-            # both diverge off-scale -> just flag it, no markers
-            if p0 and p1 and p0 > XMAX and p1 > XMAX:
+        for y, p0, p1, pr, pg, divergent in points:
+            if divergent:
                 ax.annotate(f"diverges  ({p0:,.0f} / {p1:,.0f} ppl)",
-                            (XVIEW[1], y), xytext=(0, 0), textcoords="offset points",
+                            (view[1], y), xytext=(0, 0), textcoords="offset points",
                             ha="right", va="center", fontsize=8, color=BAD)
                 continue
             if p0 is None and p1 is None:
@@ -105,14 +113,16 @@ def main():
             ax.annotate(f"fp16  {fp16:.1f}", (fp16, npos - 0.5), xytext=(5, 0),
                         textcoords="offset points", fontsize=8, color=INK, va="center")
 
+        ticks = [t for t in TICK_CANDIDATES if view[0] <= t <= view[1]]
+
         ax.set_xscale("log")
-        ax.set_xlim(*XVIEW)
+        ax.set_xlim(*view)
         ax.set_ylim(-0.6, npos - 0.4)
         ax.set_yticks(list(range(npos))[::-1])
         ax.set_yticklabels([r[2] for r in ROWS], fontsize=9.5)
         ax.set_title(f"{bits}-bit weights", fontsize=11, color=INK, pad=8)
-        ax.xaxis.set_major_locator(FixedLocator(TICKS))
-        ax.xaxis.set_major_formatter(FixedFormatter([str(t) for t in TICKS]))
+        ax.xaxis.set_major_locator(FixedLocator(ticks))
+        ax.xaxis.set_major_formatter(FixedFormatter([str(t) for t in ticks]))
         ax.xaxis.set_minor_locator(NullLocator())
         ax.tick_params(axis="x", labelsize=8)
         ax.grid(axis="x", color=GRID, lw=0.8)
