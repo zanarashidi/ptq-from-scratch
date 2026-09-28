@@ -2,7 +2,6 @@
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.2%2B-EE4C2C?logo=pytorch&logoColor=white)
-![CUDA](https://img.shields.io/badge/CUDA-optional-76B900?logo=nvidia&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 
 Post-training quantization of a small LLM, implemented from first principles, to
