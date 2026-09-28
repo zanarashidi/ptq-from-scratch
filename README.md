@@ -119,91 +119,56 @@ against:
 
 ### Reading the table
 
-1. **The quantizer is correct.** RTN at 8 bits is within 0.02 ppl of fp16, so any
-   damage at 4/3 bits is quantization difficulty, not a bug.
+1. **The quantizer is sound.** RTN-8 sits within 0.02 ppl of fp16, so damage at
+   4/3-bit is real quantization difficulty, not a bug.
 
-2. **GPTQ's error feedback is worth a lot.** At 4-bit per-channel it nearly
-   halves the gap to fp16 versus RTN (16.5 vs 30.3). This is the inverse-Hessian
-   update compensating each column's rounding error against the not-yet-quantized
-   columns.
+2. **GPTQ's error feedback matters.** At 4-bit it nearly halves RTN's gap to
+   fp16 (16.5 vs 30.3) by compensating each column's rounding error against
+   the columns not yet quantized.
 
-3. **Rotation helps in the coarse regime, and any orthogonal matrix will do.**
-   With a single per-channel scale per row, the Hadamard rotation improves every
-   setting it was tried in: RTN-4 30.3 -> 25.5 (-16%), GPTQ-4 16.5 -> 15.3
-   (closes ~35% of the residual gap), GPTQ-3 107 -> 85. A *random* orthogonal
-   matrix does the same (GPTQ-3: 82.6, statistically indistinguishable from the
-   Hadamard's 85.3) - consistent with the mechanism being "mix every channel into
-   every other," for which Hadamard is just the cheap `O(n log n)` structured
-   choice.
+3. **Rotation helps in the coarse regime - any orthogonal matrix will do.**
+   Hadamard improves every setting tried: RTN-4 30.3&rarr;25.5, GPTQ-4
+   16.5&rarr;15.3, GPTQ-3 107&rarr;85. A *random* orthogonal matrix does the
+   same (82.6, indistinguishable from Hadamard's 85.3) - the mechanism is
+   "mix every channel into every other," and Hadamard is just the cheap
+   structured way to do it.
 
-4. **A full Hadamard alone does not rescue 3-bit here - because Qwen never gets
-   one.** GPTQ-3 + Hadamard is still 85 ppl against fp16's 13. Qwen2.5-0.5B has
-   hidden size 896 = 128 x 7, which is not a power of two, so `hadamard_matrix()`
-   falls back to `kron(H_128, I_7)` - it only mixes channels *within* each block
-   of 128 and leaves the 7 blocks unmixed.
+4. **Qwen's hidden size (896 = 128&times;7) breaks that cheapness.**
+   `hadamard_matrix()` falls back to a partial `kron()` mix, which is why
+   Hadamard alone can't rescue 3-bit (still 85 ppl). Givens rotation (no
+   power-of-two constraint) reaches **74.98 ppl** instead - better than both
+   the partial Hadamard and a full random draw - confirming it was the shape
+   mismatch, not the mechanism, holding 3-bit back.
 
-5. **A rotation with no power-of-two constraint closes most of that gap.**
-   `ptq/rotation.py` also implements a Givens-rotation mode (composed random
-   pairwise plane rotations - the approach in ParoQuant, Liang et al. 2025):
-   it needs no power-of-two hidden size, since it is built from `n/2` 2x2
-   rotations per layer rather than a fixed butterfly. At GPTQ-3 per-channel it
-   reaches **74.98 ppl - better than the partial Hadamard (85.3) and better
-   than a full random orthogonal draw (82.6)**, the best 3-bit per-channel
-   result in this table. At 4-bit it lands within noise of Hadamard (15.46 vs
-   15.33) - consistent with rotation choice mattering most exactly where the
-   outlier problem is hardest. Llama-3.2-1B (hidden 2048, a genuine
-   power-of-two) is still the cleaner test of a *full* Hadamard specifically,
-   but Givens rotation sidesteps the question entirely: it works on any hidden
-   size without a fallback.
-
-6. **Group scales and rotation solve overlapping problems.** Moving GPTQ to
-   group-128 scales takes 3-bit from unusable (107) to 26.5 and 4-bit to within
-   1.5 ppl of fp16 - still well ahead of per-channel + Givens (75.0). Once the
-   scale is local to a 128-wide group, the group max already tracks local
-   outliers, and adding the (partial) rotation on top changes nothing: 14.57 ->
-   14.40 at 4-bit, 26.55 -> 26.76 at 3-bit. On this model, per-group
-   quantization is the bigger lever; rotation is what you reach for when you
-   want to keep a *single* scale per channel (cheaper metadata, simpler
-   kernels) and still survive low-bit weights - and if you're in that regime,
-   which rotation you pick clearly matters (75.0 vs 85.3 vs 107.1).
+5. **Group scales are the bigger lever here.** group-128 takes 3-bit from
+   107&rarr;26.5 and 4-bit to within 1.5 ppl of fp16; once scales are local,
+   adding rotation on top changes almost nothing (14.57&rarr;14.40,
+   26.55&rarr;26.76). Rotation earns its keep when you want a single scale
+   per channel instead.
 
 ## Why rotation works
 
-1. **The outlier problem.** A handful of activation channels in a trained
-   transformer carry magnitudes 10-100x the rest. A quantization scale is set by
-   the largest value in its row/group, so one outlier stretches the grid and
-   every ordinary value collapses onto 1-2 effective levels.
+1. **The outlier problem.** A few activation channels run 10-100x larger than
+   the rest; since the quantization scale is set by the largest value, every
+   ordinary value gets squeezed onto 1-2 effective levels.
 
-2. **What a rotation does.** An orthogonal `Q` mixes every channel into every
-   other. A concentrated spike becomes spread across all coordinates; by a
-   Johnson-Lindenstrauss / concentration argument the rotated vector looks
-   near-Gaussian with a much smaller max/RMS ratio, so a uniform grid fits it
-   well. A Hadamard matrix is the cheap structured choice: `O(n log n)`, entries
-   `+-1/sqrt(n)`, but it demands a power-of-two `n`. A *random* orthogonal
-   matrix (full QR-based draw) works equally well and needs no such
-   constraint - the structure buys speed, not accuracy. Composed pairwise
-   Givens rotations (`givens_rotation()`) are a third option in the same
-   family: no power-of-two constraint like random, but built from cheap `O(n)`
-   plane rotations per layer rather than one dense `O(n^2)` QR factorization -
-   and on Qwen's non-power-of-two hidden size it was the best of the three.
+2. **What rotation does.** An orthogonal `Q` mixes every channel into every
+   other, spreading a spike into a near-Gaussian shape with a much smaller
+   max/RMS ratio. Hadamard (`O(n log n)`, needs power-of-two `n`), a random QR
+   draw, and composed Givens rotations (`O(n)` per layer, no size constraint)
+   are three ways to build one - on Qwen's non-power-of-two hidden size,
+   Givens won.
 
-3. **Why it's free at inference (computational invariance).** RMSNorm is
-   invariant to an orthogonal rotation of its input (it only divides by the
-   norm). So if you rotate everything entering the residual stream by `Q` and
-   everything leaving it by `Q^T`, and fold the norm scales into the weights
-   first, the network computes the identical function - the rotation is a change
-   of basis absorbed entirely into the weight matrices offline. `apply_rotation`
-   verifies this: fp16 ppl moves by <0.01 through the extra matmuls.
+3. **Why it's free at inference.** RMSNorm only divides by its input's norm,
+   which rotation preserves - so folding the norm's scale into the weights
+   first, then rotating everything entering/leaving the residual stream by
+   `Q`/`Q^T`, changes nothing about the function. `apply_rotation` confirms
+   it: fp16 ppl moves by <0.01.
 
-4. **Why this matters for memory-bound inference.** LLM decode is
-   bandwidth-bound: time per token is approximately (weight bytes + KV-cache
-   bytes) / HBM bandwidth. Going 16 -> 4 bit is a ~4x cut in bytes streamed per
-   token. Rotation is one of the tools that lets you take that cut while keeping
-   a single scale per channel and without accuracy falling off a cliff - most
-   effective, on the evidence here, when the rotation actually achieves
-   full-rank mixing (a full Hadamard, a random draw, or enough Givens layers),
-   and weakest when a shape mismatch (a non-power-of-two hidden size) forces a
-   partial one.
+4. **Why it matters at all.** Decode is bandwidth-bound - time per token is
+   roughly bytes moved / HBM bandwidth - so cutting weight bits directly cuts
+   latency. Rotation is what lets that cut reach 3-4 bits without accuracy
+   collapsing, provided it achieves genuine full-rank mixing.
 
 ## Extensions
 
