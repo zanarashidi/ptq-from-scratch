@@ -25,8 +25,10 @@ GIVENS = "#5b4fa0"     # givens (pairwise) rotation - secondary point
 GRID = "#e8e8e8"
 BAD = "#b00020"
 
-XMAX = 400
-TICKS = [13, 20, 30, 50, 100, 200, 400]
+XMAX = 400            # threshold for "diverges" annotation vs. an actual point
+XVIEW = (11.5, 130)   # axis range - tight around the real data (max ~107) so
+                      # nearby points (e.g. 14.4 vs 15.3 vs 16.5) stay visible
+TICKS = [13, 20, 30, 50, 75, 100]
 
 # (method, grouping) rows, top to bottom
 ROWS = [
@@ -65,7 +67,7 @@ def main():
             # both diverge off-scale -> just flag it, no markers
             if p0 and p1 and p0 > XMAX and p1 > XMAX:
                 ax.annotate(f"diverges  ({p0:,.0f} / {p1:,.0f} ppl)",
-                            (XMAX, y), xytext=(0, 0), textcoords="offset points",
+                            (XVIEW[1], y), xytext=(0, 0), textcoords="offset points",
                             ha="right", va="center", fontsize=8, color=BAD)
                 continue
             if p0 is None and p1 is None:
@@ -104,7 +106,7 @@ def main():
                         textcoords="offset points", fontsize=8, color=INK, va="center")
 
         ax.set_xscale("log")
-        ax.set_xlim(11.5, 470)
+        ax.set_xlim(*XVIEW)
         ax.set_ylim(-0.6, npos - 0.4)
         ax.set_yticks(list(range(npos))[::-1])
         ax.set_yticklabels([r[2] for r in ROWS], fontsize=9.5)
@@ -137,7 +139,11 @@ def main():
                  y=1.04, fontsize=12.5, color=INK)
     fig.tight_layout(w_pad=3)
     out = RESULTS / "ablation.png"
-    fig.savefig(out, dpi=140, bbox_inches="tight")
+    # dpi=220 rather than a lower value: GitHub's README view displays this at
+    # roughly the CSS width of the content column, and on a HiDPI/retina screen
+    # that needs real pixels well above the CSS size to render crisply - a lower
+    # dpi looks fine opened directly but visibly softer embedded inline.
+    fig.savefig(out, dpi=220, bbox_inches="tight")
     print(f"wrote {out}")
 
 
